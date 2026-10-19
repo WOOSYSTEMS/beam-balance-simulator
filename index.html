@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beam Balance Simulator</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f5; color:#333; }
+.header { background:#1a1a2e; color:#fff; padding:16px 24px; display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:1.2em; color:#e85d00; }
+.header span { font-size:0.8em; color:#666; }
+.container { max-width:1000px; margin:20px auto; padding:0 20px; }
+canvas { background:#fff; border:1px solid #ddd; border-radius:8px; display:block; margin:0 auto; cursor:grab; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+canvas:active { cursor:grabbing; }
+.controls { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-top:20px; }
+.panel { background:#fff; border:1px solid #ddd; border-radius:8px; padding:16px; box-shadow:0 2px 4px rgba(0,0,0,0.05); }
+.panel h3 { font-size:0.9em; color:#e85d00; margin-bottom:12px; text-transform:uppercase; letter-spacing:1px; }
+.field { margin-bottom:10px; }
+.field label { display:block; font-size:0.8em; color:#666; margin-bottom:4px; }
+.field input[type=range] { width:100%; }
+.field input[type=number] { width:80px; padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:0.9em; }
+.field .val { font-size:1.1em; font-weight:700; color:#1a1a2e; }
+.results { background:#fff; border:1px solid #ddd; border-radius:8px; padding:16px; margin-top:20px; box-shadow:0 2px 4px rgba(0,0,0,0.05); }
+.results h3 { font-size:0.9em; color:#e85d00; margin-bottom:12px; text-transform:uppercase; letter-spacing:1px; }
+.result-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.result-item { text-align:center; padding:12px; background:#f8f8f8; border-radius:6px; }
+.result-item .num { font-size:1.4em; font-weight:700; color:#e85d00; }
+.result-item .lbl { font-size:0.75em; color:#666; margin-top:4px; }
+.eq { background:#1a1a2e; color:#e0e0e0; padding:12px 16px; border-radius:6px; margin-top:12px; font-family:monospace; font-size:0.85em; line-height:1.8; }
+.btn-row { margin-top:16px; display:flex; gap:8px; }
+.btn { padding:8px 16px; border:none; border-radius:4px; cursor:pointer; font-size:0.85em; font-weight:600; }
+.btn-add { background:#e85d00; color:#fff; }
+.btn-add:hover { background:#c44e00; }
+.btn-reset { background:#ddd; color:#333; }
+.btn-reset:hover { background:#ccc; }
+.btn-remove { background:#c0392b; color:#fff; font-size:0.75em; padding:4px 8px; }
+.mass-list { margin-top:8px; }
+.mass-item { display:flex; align-items:center; gap:8px; margin-bottom:6px; padding:6px; background:#f8f8f8; border-radius:4px; font-size:0.85em; }
+.mass-item .color-dot { width:12px; height:12px; border-radius:50%; }
+.info { font-size:0.75em; color:#999; margin-top:8px; }
+@media(max-width:768px) { .controls { grid-template-columns:1fr; } .result-grid { grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Beam Balance Simulator</h1>
+    <span>Drag masses on the beam. Everything is adjustable.</span>
+</div>
+
+<div class="container">
+    <canvas id="cv" width="960" height="320"></canvas>
+
+    <div class="controls">
+        <div class="panel">
+            <h3>Beam</h3>
+            <div class="field">
+                <label>Beam Length (cm)</label>
+                <input type="number" id="beamLen" value="100" min="20" max="300" step="1">
+            </div>
+            <div class="field">
+                <label>Beam Mass (g)</label>
+                <input type="number" id="beamMass" value="0" min="0" max="5000" step="1">
+            </div>
+            <div class="field">
+                <label>Gravity (m/s²)</label>
+                <input type="number" id="gravity" value="9.81" min="0.1" max="25" step="0.01">
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>Fulcrums</h3>
+            <div class="field">
+                <label>Fulcrum R1 position (cm from left)</label>
+                <input type="number" id="f1pos" value="10" min="0" max="300" step="1">
+            </div>
+            <div class="field">
+                <label>Fulcrum R2 position (cm from left)</label>
+                <input type="number" id="f2pos" value="90" min="0" max="300" step="1">
+            </div>
+            <p class="info">Drag the triangles on the beam to reposition fulcrums.</p>
+        </div>
+
+        <div class="panel">
+            <h3>Masses</h3>
+            <div class="btn-row">
+                <button class="btn btn-add" onclick="addMass()">+ Add Mass</button>
+                <button class="btn btn-reset" onclick="resetAll()">Reset All</button>
+            </div>
+            <div class="mass-list" id="massList"></div>
+            <p class="info">Drag masses on the beam to move them. Click "Add Mass" to add more.</p>
+        </div>
+    </div>
+
+    <div class="results">
+        <h3>Results</h3>
+        <div class="result-grid">
+            <div class="result-item"><div class="num" id="r1val">0</div><div class="lbl">R1 Force (N)</div></div>
+            <div class="result-item"><div class="num" id="r2val">0</div><div class="lbl">R2 Force (N)</div></div>
+            <div class="result-item"><div class="num" id="totalW">0</div><div class="lbl">Total Weight (N)</div></div>
+            <div class="result-item"><div class="num" id="equilib">Yes</div><div class="lbl">Equilibrium</div></div>
+        </div>
+        <div class="eq" id="equations"></div>
+    </div>
+</div>
+
+<script>
+var cv = document.getElementById('cv');
+var ctx = cv.getContext('2d');
+
+var beamLenInput = document.getElementById('beamLen');
+var beamMassInput = document.getElementById('beamMass');
+var gravityInput = document.getElementById('gravity');
+var f1posInput = document.getElementById('f1pos');
+var f2posInput = document.getElementById('f2pos');
+
+var massColors = ['#e85d00','#2980b9','#27ae60','#8e44ad','#c0392b','#f39c12','#1abc9c','#e74c3c','#3498db','#2ecc71'];
+var masses = [
+    { pos: 25, mass: 200, color: massColors[0] },
+    { pos: 75, mass: 500, color: massColors[1] }
+];
+
+var dragging = null; // {type:'mass',idx} or {type:'f1'} or {type:'f2'}
+var massIdCounter = 2;
+
+function getBeamLen() { return parseFloat(beamLenInput.value) || 100; }
+function getBeamMass() { return parseFloat(beamMassInput.value) || 0; }
+function getGravity() { return parseFloat(gravityInput.value) || 9.81; }
+function getF1() { return parseFloat(f1posInput.value) || 10; }
+function getF2() { return parseFloat(f2posInput.value) || 90; }
+
+// Coordinate conversion
+var beamPad = 60;
+function cmToX(cm) {
+    var blen = getBeamLen();
+    return beamPad + (cm / blen) * (cv.width - 2 * beamPad);
+}
+function xToCm(x) {
+    var blen = getBeamLen();
+    var cm = ((x - beamPad) / (cv.width - 2 * beamPad)) * blen;
+    return Math.max(0, Math.min(blen, Math.round(cm * 10) / 10));
+}
+
+var beamY = 180;
+
+function solve() {
+    var g = getGravity();
+    var blen = getBeamLen();
+    var bmass = getBeamMass();
+    var f1 = getF1();
+    var f2 = getF2();
+
+    if (f1 === f2) return { r1: 0, r2: 0, totalW: 0, ok: false, steps: ['Error: fulcrums at same position'] };
+
+    // Total torques about f1
+    var totalWeight = 0;
+    var torqueAboutF1 = 0;
+    var steps = [];
+
+    // Beam weight at center
+    var beamW = bmass * g / 1000;
+    var beamCenter = blen / 2;
+    if (bmass > 0) {
+        totalWeight += beamW;
+        torqueAboutF1 += beamW * (beamCenter - f1) / 100; // convert cm to m
+        steps.push('Beam: W=' + beamW.toFixed(3) + 'N at ' + beamCenter + 'cm, torque about R1 = ' + (beamW * (beamCenter - f1) / 100).toFixed(4) + ' Nm');
+    }
+
+    for (var i = 0; i < masses.length; i++) {
+        var m = masses[i];
+        var w = m.mass * g / 1000;
+        totalWeight += w;
+        torqueAboutF1 += w * (m.pos - f1) / 100;
+        steps.push('Mass ' + (i + 1) + ': W=' + w.toFixed(3) + 'N at ' + m.pos + 'cm, torque about R1 = ' + (w * (m.pos - f1) / 100).toFixed(4) + ' Nm');
+    }
+
+    // R2 * (f2 - f1) = sum of torques about f1
+    var d = (f2 - f1) / 100;
+    var r2 = torqueAboutF1 / d;
+    var r1 = totalWeight - r2;
+
+    steps.push('');
+    steps.push('Sum of torques about R1 = 0:');
+    steps.push('R2 x ' + (f2 - f1) + 'cm = ' + (torqueAboutF1 * 100).toFixed(2) + ' N.cm');
+    steps.push('R2 = ' + r2.toFixed(3) + ' N');
+    steps.push('');
+    steps.push('Sum of vertical forces = 0:');
+    steps.push('R1 + R2 = ' + totalWeight.toFixed(3) + ' N');
+    steps.push('R1 = ' + totalWeight.toFixed(3) + ' - ' + r2.toFixed(3) + ' = ' + r1.toFixed(3) + ' N');
+
+    var ok = r1 >= -0.001 && r2 >= -0.001;
+    if (!ok) {
+        steps.push('');
+        steps.push('WARNING: Negative reaction force means the beam would tip over!');
+    }
+
+    return { r1: r1, r2: r2, totalW: totalWeight, ok: ok, steps: steps };
+}
+
+function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    var blen = getBeamLen();
+    var f1 = getF1();
+    var f2 = getF2();
+
+    var x1 = cmToX(0);
+    var x2 = cmToX(blen);
+
+    // Beam
+    ctx.fillStyle = '#ddd';
+    ctx.fillRect(x1, beamY - 6, x2 - x1, 12);
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x1, beamY - 6, x2 - x1, 12);
+
+    // Ruler marks
+    ctx.fillStyle = '#999';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    var step = blen <= 50 ? 5 : blen <= 150 ? 10 : 25;
+    for (var cm = 0; cm <= blen; cm += step) {
+        var rx = cmToX(cm);
+        ctx.beginPath();
+        ctx.moveTo(rx, beamY + 6);
+        ctx.lineTo(rx, beamY + 14);
+        ctx.strokeStyle = '#aaa';
+        ctx.stroke();
+        ctx.fillText(cm, rx, beamY + 24);
+    }
+
+    // Fulcrums
+    function drawFulcrum(pos, label, col) {
+        var fx = cmToX(pos);
+        var fy = beamY + 6;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx - 16, fy + 30);
+        ctx.lineTo(fx + 16, fy + 30);
+        ctx.closePath();
+        ctx.fillStyle = col;
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Label
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, fx, fy + 46);
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#666';
+        ctx.fillText(pos + ' cm', fx, fy + 58);
+        // Balance box
+        ctx.strokeStyle = '#999';
+        ctx.strokeRect(fx - 20, fy + 30, 40, 14);
+        ctx.fillStyle = '#f5f5f5';
+        ctx.fillRect(fx - 19, fy + 31, 38, 12);
+        ctx.fillStyle = '#666';
+        ctx.font = '8px sans-serif';
+        ctx.fillText('Balance', fx, fy + 40);
+    }
+    drawFulcrum(f1, 'R1', '#4a90d9');
+    drawFulcrum(f2, 'R2', '#4a90d9');
+
+    // Beam mass indicator
+    var bmass = getBeamMass();
+    if (bmass > 0) {
+        var cx = cmToX(blen / 2);
+        ctx.fillStyle = 'rgba(100,100,100,0.3)';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Beam: ' + bmass + 'g', cx, beamY - 12);
+        // Small down arrow at center
+        ctx.beginPath();
+        ctx.moveTo(cx, beamY - 8);
+        ctx.lineTo(cx - 4, beamY - 14);
+        ctx.lineTo(cx + 4, beamY - 14);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(100,100,100,0.5)';
+        ctx.fill();
+    }
+
+    // Masses
+    for (var i = 0; i < masses.length; i++) {
+        var m = masses[i];
+        var mx = cmToX(m.pos);
+        var my = beamY - 6;
+
+        // Hook
+        ctx.beginPath();
+        ctx.arc(mx, my - 20, 8, 0, Math.PI, true);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(mx, my - 12);
+        ctx.lineTo(mx, my);
+        ctx.stroke();
+
+        // Weight body
+        var ww = 24 + Math.min(m.mass / 50, 20);
+        var wh = 20 + Math.min(m.mass / 100, 15);
+        ctx.fillStyle = m.color;
+        ctx.beginPath();
+        ctx.moveTo(mx - ww/2, my - 20 - 8);
+        ctx.lineTo(mx - ww/2 - 4, my - 20 - 8 - wh);
+        ctx.lineTo(mx + ww/2 + 4, my - 20 - 8 - wh);
+        ctx.lineTo(mx + ww/2, my - 20 - 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Mass label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(m.mass + 'g', mx, my - 20 - 8 - wh/2 + 4);
+
+        // Position label
+        ctx.fillStyle = '#333';
+        ctx.font = '10px monospace';
+        ctx.fillText(m.pos + ' cm', mx, my - 20 - 8 - wh - 6);
+    }
+
+    // Dimension arrows
+    function dimArrow(x1a, x2a, ya, label) {
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x1a, ya);
+        ctx.lineTo(x2a, ya);
+        ctx.stroke();
+        // Arrowheads
+        ctx.beginPath();
+        ctx.moveTo(x1a, ya);
+        ctx.lineTo(x1a + 6, ya - 3);
+        ctx.lineTo(x1a + 6, ya + 3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x2a, ya);
+        ctx.lineTo(x2a - 6, ya - 3);
+        ctx.lineTo(x2a - 6, ya + 3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#333';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, (x1a + x2a) / 2, ya - 5);
+    }
+
+    // Show beam length dimension at top
+    dimArrow(cmToX(0), cmToX(blen), 25, blen + ' cm');
+
+    // Results
+    var res = solve();
+    document.getElementById('r1val').textContent = res.r1.toFixed(3);
+    document.getElementById('r2val').textContent = res.r2.toFixed(3);
+    document.getElementById('totalW').textContent = res.totalW.toFixed(3);
+    var eq = document.getElementById('equilib');
+    eq.textContent = res.ok ? 'Yes' : 'TIPPING';
+    eq.style.color = res.ok ? '#27ae60' : '#c0392b';
+    document.getElementById('r1val').style.color = res.r1 < 0 ? '#c0392b' : '#e85d00';
+    document.getElementById('r2val').style.color = res.r2 < 0 ? '#c0392b' : '#e85d00';
+
+    // Equations
+    document.getElementById('equations').innerHTML = res.steps.join('<br>');
+
+    // Draw reaction force arrows
+    var arrowScale = 80;
+    function drawForceArrow(pos, force, label, col) {
+        var fx = cmToX(pos);
+        var fy = beamY + 90;
+        var len = Math.min(Math.abs(force) * arrowScale, 60);
+        if (force < 0) len = -len;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx, fy - len);
+        ctx.stroke();
+        // Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(fx, fy - len);
+        ctx.lineTo(fx - 5, fy - len + (force >= 0 ? 8 : -8));
+        ctx.lineTo(fx + 5, fy - len + (force >= 0 ? 8 : -8));
+        ctx.closePath();
+        ctx.fillStyle = col;
+        ctx.fill();
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label + ' = ' + force.toFixed(2) + 'N', fx, fy + 14);
+    }
+    drawForceArrow(f1, res.r1, 'R1', '#2980b9');
+    drawForceArrow(f2, res.r2, 'R2', '#27ae60');
+
+    updateMassList();
+}
+
+function updateMassList() {
+    var list = document.getElementById('massList');
+    list.innerHTML = '';
+    for (var i = 0; i < masses.length; i++) {
+        var m = masses[i];
+        var div = document.createElement('div');
+        div.className = 'mass-item';
+        div.innerHTML = '<span class="color-dot" style="background:' + m.color + '"></span>' +
+            '<span>' + m.mass + 'g at ' + m.pos + 'cm</span>' +
+            '<input type="number" value="' + m.mass + '" min="1" max="10000" style="width:60px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:0.8em" onchange="masses[' + i + '].mass=parseFloat(this.value)||100;draw()">' +
+            '<span style="font-size:0.7em;color:#999">g</span>' +
+            '<button class="btn btn-remove" onclick="masses.splice(' + i + ',1);draw()">x</button>';
+        list.appendChild(div);
+    }
+}
+
+function addMass() {
+    var blen = getBeamLen();
+    masses.push({
+        pos: Math.round(blen / 2),
+        mass: 100,
+        color: massColors[massIdCounter % massColors.length]
+    });
+    massIdCounter++;
+    draw();
+}
+
+function resetAll() {
+    masses = [
+        { pos: 25, mass: 200, color: massColors[0] },
+        { pos: 75, mass: 500, color: massColors[1] }
+    ];
+    beamLenInput.value = 100;
+    beamMassInput.value = 0;
+    gravityInput.value = 9.81;
+    f1posInput.value = 10;
+    f2posInput.value = 90;
+    massIdCounter = 2;
+    draw();
+}
+
+// Dragging
+cv.addEventListener('mousedown', function(e) {
+    var rect = cv.getBoundingClientRect();
+    var mx = (e.clientX - rect.left) * (cv.width / rect.width);
+    var my = (e.clientY - rect.top) * (cv.height / rect.height);
+
+    // Check masses first (they're on top)
+    for (var i = masses.length - 1; i >= 0; i--) {
+        var px = cmToX(masses[i].pos);
+        if (Math.abs(mx - px) < 25 && my < beamY && my > beamY - 80) {
+            dragging = { type: 'mass', idx: i };
+            return;
+        }
+    }
+    // Check fulcrums
+    var f1x = cmToX(getF1());
+    if (Math.abs(mx - f1x) < 20 && my > beamY && my < beamY + 60) {
+        dragging = { type: 'f1' };
+        return;
+    }
+    var f2x = cmToX(getF2());
+    if (Math.abs(mx - f2x) < 20 && my > beamY && my < beamY + 60) {
+        dragging = { type: 'f2' };
+        return;
+    }
+});
+
+cv.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var rect = cv.getBoundingClientRect();
+    var mx = (e.clientX - rect.left) * (cv.width / rect.width);
+    var cm = xToCm(mx);
+
+    if (dragging.type === 'mass') {
+        masses[dragging.idx].pos = cm;
+    } else if (dragging.type === 'f1') {
+        f1posInput.value = cm;
+    } else if (dragging.type === 'f2') {
+        f2posInput.value = cm;
+    }
+    draw();
+});
+
+cv.addEventListener('mouseup', function() { dragging = null; });
+cv.addEventListener('mouseleave', function() { dragging = null; });
+
+// Touch support
+cv.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    var t = e.touches[0];
+    var rect = cv.getBoundingClientRect();
+    var mx = (t.clientX - rect.left) * (cv.width / rect.width);
+    var my = (t.clientY - rect.top) * (cv.height / rect.height);
+    for (var i = masses.length - 1; i >= 0; i--) {
+        var px = cmToX(masses[i].pos);
+        if (Math.abs(mx - px) < 30 && my < beamY && my > beamY - 80) {
+            dragging = { type: 'mass', idx: i };
+            return;
+        }
+    }
+    var f1x = cmToX(getF1());
+    if (Math.abs(mx - f1x) < 25 && my > beamY) { dragging = { type: 'f1' }; return; }
+    var f2x = cmToX(getF2());
+    if (Math.abs(mx - f2x) < 25 && my > beamY) { dragging = { type: 'f2' }; return; }
+});
+cv.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (!dragging) return;
+    var t = e.touches[0];
+    var rect = cv.getBoundingClientRect();
+    var mx = (t.clientX - rect.left) * (cv.width / rect.width);
+    var cm = xToCm(mx);
+    if (dragging.type === 'mass') masses[dragging.idx].pos = cm;
+    else if (dragging.type === 'f1') f1posInput.value = cm;
+    else if (dragging.type === 'f2') f2posInput.value = cm;
+    draw();
+});
+cv.addEventListener('touchend', function() { dragging = null; });
+
+// Input listeners
+[beamLenInput, beamMassInput, gravityInput, f1posInput, f2posInput].forEach(function(el) {
+    el.addEventListener('input', draw);
+    el.addEventListener('change', draw);
+});
+
+// Initial draw
+draw();
+</script>
+</body>
+</html>
